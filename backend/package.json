@@ -1,0 +1,34 @@
+{
+  "name": "gritty",
+  "version": "0.1.0",
+  "description": "A Git implementation from scratch in Node.js — object model, DAG, refs, and CLI. No libgit2, no nodegit, no git CLI wrapping.",
+  "type": "module",
+  "bin": {
+    "gritty": "bin/gritty.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/**/*.test.js",
+    "start": "node src/server.js",
+    "gritty": "node bin/gritty.js"
+  },
+  "keywords": [
+    "git",
+    "vcs",
+    "sha1",
+    "content-addressable",
+    "dag"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.1.0",
+    "express": "^5.2.1"
+  },
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "author": ""
+}
