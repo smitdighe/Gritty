@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Env files 
+.env
+.env.local
+.env.*.local
+
+# Backend 
+**/.gritty/
+
+# Frontend build output
+frontend/dist/
+frontend/build/
+
+# Vite
+frontend/.vite/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+*.tsbuildinfo
