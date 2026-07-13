@@ -45,7 +45,7 @@ test('GET /status on a fresh repo: unborn branch, no head', async () => {
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.branch, 'main');
-  assert.equal(body.head, null);
+  assert.equal(body.headSha, null);
 });
 
 test('POST /checkout with an invalid target returns 404 RefNotFound', async () => {
@@ -70,32 +70,45 @@ test('a staged commit round-trips through /commits then /status and /log', async
   const commitRes = await post('/commits', { message: 'first via API' });
   assert.equal(commitRes.status, 201);
   const commitBody = await commitRes.json();
-  assert.match(commitBody.result, /root-commit/);
-  assert.match(commitBody.head, /^[0-9a-f]{40}$/);
+  assert.match(commitBody.sha, /^[0-9a-f]{40}$/);
+  assert.equal(commitBody.branch, 'main');
 
   // /status now reports the new HEAD and a clean tree.
   const status = await (await get('/status')).json();
-  assert.equal(status.head, commitBody.head);
+  assert.equal(status.headSha, commitBody.sha);
   assert.deepEqual(status.unstaged, []);
   assert.deepEqual(status.untracked, []);
 
-  // /log lists exactly that commit.
+  // /log is an array of { sha, commit }.
   const log = await (await get('/log')).json();
-  assert.equal(log.commits.length, 1);
-  assert.equal(log.commits[0].sha, commitBody.head);
-  assert.equal(log.commits[0].message.trim(), 'first via API');
+  assert.equal(log.length, 1);
+  assert.equal(log[0].sha, commitBody.sha);
+  assert.equal(log[0].commit.message.trim(), 'first via API');
 
-  // /objects/HEAD returns the commit object as text.
-  const obj = await (await get(`/objects/${commitBody.head}`)).json();
+  // /objects/HEAD returns the commit object, parsed.
+  const obj = await (await get(`/objects/${commitBody.sha}`)).json();
   assert.equal(obj.type, 'commit');
-  assert.match(obj.content, /^tree [0-9a-f]{40}/);
+  assert.match(obj.content.tree, /^[0-9a-f]{40}$/);
 });
 
 test('POST /branches creates a branch shown by /branches', async () => {
   const res = await post('/branches', { name: 'feature' });
   assert.equal(res.status, 201);
+  const created = await res.json();
+  assert.equal(created.name, 'feature');
+  assert.match(created.sha, /^[0-9a-f]{40}$/);
   const list = await (await get('/branches')).json();
   const names = list.branches.map((b) => b.name).sort();
   assert.deepEqual(names, ['feature', 'main']);
   assert.equal(list.current, 'main');
+});
+
+test('GET /diff returns an array of { path, diffText } per file', async () => {
+  // Modify the committed file in the worktree (unstaged change).
+  await fs.writeFile(path.join(dataDir, 'hello.txt'), 'changed\n');
+  const diff = await (await get('/diff')).json();
+  assert.ok(Array.isArray(diff));
+  const entry = diff.find((d) => d.path === 'hello.txt');
+  assert.ok(entry, 'hello.txt present in diff');
+  assert.match(entry.diffText, /^diff --git a\/hello\.txt b\/hello\.txt/);
 });

@@ -54,6 +54,14 @@ export async function addCommand({ cwd = process.cwd(), paths } = {}) {
       for (const f of await walkFiles(abs, (_p, name) => name === GITTY_DIR)) {
         toAdd.add(f);
       }
+      // Also stage deletions: tracked entries under this directory that no
+      // longer exist on disk (walkFiles only sees files that are still there).
+      const dirPrefix = rel === '' ? '' : `${rel}/`;
+      for (const entry of index.list()) {
+        if (rel !== '' && !entry.path.startsWith(dirPrefix)) continue;
+        const entryAbs = repo.worktreePath(...entry.path.split('/'));
+        if ((await lstatIndexFields(entryAbs)) === null) toRemove.add(entry.path);
+      }
     } else {
       toAdd.add(abs);
     }

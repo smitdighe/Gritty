@@ -7,6 +7,8 @@ import { addCommand } from '../src/cli/commands/add.js';
 import { commitCommand } from '../src/cli/commands/commit.js';
 import { Repo } from '../src/core/repo/repo.js';
 import { readCommit } from '../src/core/objects/commit.js';
+import { Index } from '../src/core/index/index.js';
+import { computeStatus } from '../src/core/workdir/workdir.js';
 import { UsageError } from '../src/util/errors.js';
 import { hasGit, git, gitStr, makeTempDir, rmDir } from './helpers/git.js';
 
@@ -123,6 +125,34 @@ test('add stages a deletion for a removed tracked file', async () => {
       assert.doesNotMatch(lsTree, /a\.txt/);
       assert.match(lsTree, /src\/main\.js/);
     }
+  } finally {
+    rmDir(dir);
+  }
+});
+
+test('add <dir> (incl. "." for the repo root) also stages deletions under it', async () => {
+  const dir = makeTempDir();
+  try {
+    await seedRepo(dir);
+    await addCommand({ cwd: dir, paths: ['.'] });
+    await commitCommand({ cwd: dir, message: 'one', now, env });
+
+    // Delete a tracked file, then stage via the *directory* (not the exact path).
+    // Previously `add .` only walked existing files on disk and never noticed
+    // a tracked file had disappeared, so the deletion never got staged.
+    await fs.rm(path.join(dir, 'a.txt'));
+    const out = await addCommand({ cwd: dir, paths: ['.'] });
+    assert.match(out, /removed 1 file/);
+
+    const repo = await Repo.find(dir);
+    const index = await Index.read(repo.indexPath);
+    assert.equal(index.has('a.txt'), false);
+    assert.equal(index.has('src/main.js'), true);
+
+    // Must be stageable into a real commit, not stuck as a phantom unstaged change.
+    await commitCommand({ cwd: dir, message: 'drop a via dir add', now, env });
+    const status = await computeStatus(repo);
+    assert.deepEqual(status.unstaged, []);
   } finally {
     rmDir(dir);
   }

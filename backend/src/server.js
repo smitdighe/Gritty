@@ -17,6 +17,8 @@ import { init } from './core/repo/init.js';
 import { Repo } from './core/repo/repo.js';
 import { computeStatus } from './core/workdir/workdir.js';
 import { walkHistory } from './core/dag/walk.js';
+import { parseTree } from './core/objects/tree.js';
+import { parseCommit } from './core/objects/commit.js';
 import { commitCommand } from './cli/commands/commit.js';
 import { branchCommand } from './cli/commands/branch.js';
 import { checkoutCommand } from './cli/commands/checkout.js';
@@ -33,6 +35,23 @@ const HTTP_STATUS = {
 
 /** Wrap an async route so thrown/rejected errors reach the error middleware. */
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+/**
+ * Split a concatenated unified diff into one `{ path, diffText }` per file,
+ * splitting on each `diff --git a/<path> b/<path>` header.
+ * @param {string} text
+ * @returns {Array<{ path: string, diffText: string }>}
+ */
+function splitUnifiedDiff(text) {
+  if (!text || !text.trim()) return [];
+  return text
+    .split(/\n(?=diff --git )/g)
+    .map((block) => {
+      const m = block.match(/^diff --git a\/(.+?) b\//);
+      return { path: m ? m[1] : '', diffText: block };
+    })
+    .filter((d) => d.path);
+}
 
 /**
  * Build the Express app bound to a specific data directory. Exported (without
@@ -66,7 +85,7 @@ export function createApp(dataDir) {
       const s = await computeStatus(repo);
       res.json({
         branch: s.branch,
-        head: s.headSha,
+        headSha: s.headSha,
         staged: s.staged,
         unstaged: s.unstaged,
         untracked: s.untracked,
@@ -82,20 +101,14 @@ export function createApp(dataDir) {
       const start = req.query.start
         ? await repo.resolveRevision(String(req.query.start))
         : await repo.resolveHead();
+      // Response shape: an array of { sha, commit } (log.schema.ts).
       const commits = [];
       if (start) {
         for await (const { sha, commit } of walkHistory(repo.store, start, { limit: max })) {
-          commits.push({
-            sha,
-            tree: commit.tree,
-            parents: commit.parents,
-            author: commit.author,
-            committer: commit.committer,
-            message: commit.message,
-          });
+          commits.push({ sha, commit });
         }
       }
-      res.json({ commits });
+      res.json(commits);
     }),
   );
 
@@ -113,7 +126,8 @@ export function createApp(dataDir) {
       const { a, b } = req.query;
       const revs = a && b ? [String(a), String(b)] : [];
       const diff = await diffCommand({ cwd: dataDir, revs });
-      res.json({ diff });
+      // Split the concatenated unified diff into one { path, diffText } per file.
+      res.json(splitUnifiedDiff(diff));
     }),
   );
 
@@ -123,34 +137,45 @@ export function createApp(dataDir) {
       const repo = await openRepo();
       const sha = await repo.resolveRevision(req.params.sha); // allows HEAD / branch / full sha
       const obj = await repo.store.read(sha);
-      // Blobs and trees are binary → base64; commits are text.
-      const encoding = obj.type === 'commit' ? 'utf8' : 'base64';
-      res.json({ sha, type: obj.type, size: obj.size, encoding, content: obj.content.toString(encoding) });
+      // Discriminated on type (object.schema.ts):
+      //   blob   → content is base64-encoded bytes (string)
+      //   tree   → content is the list of entries
+      //   commit → content is the parsed commit
+      let content;
+      if (obj.type === 'tree') content = parseTree(obj.content);
+      else if (obj.type === 'commit') content = parseCommit(obj.content);
+      else content = obj.content.toString('base64');
+      res.json({ type: obj.type, size: obj.size, content });
     }),
   );
 
   app.post(
     '/commits',
     wrap(async (req, res) => {
-      const result = await commitCommand({ cwd: dataDir, message: req.body?.message });
+      await commitCommand({ cwd: dataDir, message: req.body?.message });
       const repo = await openRepo();
-      res.status(201).json({ result, head: await repo.resolveHead() });
+      res.status(201).json({ sha: await repo.resolveHead(), branch: await repo.currentBranch() });
     }),
   );
 
   app.post(
     '/branches',
     wrap(async (req, res) => {
-      await branchCommand({ cwd: dataDir, name: req.body?.name });
-      res.status(201).json({ ok: true, name: req.body?.name });
+      const name = req.body?.name;
+      await branchCommand({ cwd: dataDir, name });
+      const repo = await openRepo();
+      res.status(201).json({ name, sha: await repo.refs.read(`refs/heads/${name}`) });
     }),
   );
 
   app.post(
     '/checkout',
     wrap(async (req, res) => {
-      const result = await checkoutCommand({ cwd: dataDir, target: req.body?.target });
-      res.json({ result });
+      const target = req.body?.target;
+      await checkoutCommand({ cwd: dataDir, target });
+      const repo = await openRepo();
+      // Detached when HEAD no longer points at a branch (checked out a commit).
+      res.json({ switchedTo: target, detached: (await repo.currentBranch()) === null });
     }),
   );
 
