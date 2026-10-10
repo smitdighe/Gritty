@@ -1,11 +1,15 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
   Controls,
   EdgeLabelRenderer,
   useReactFlow,
+  useStore,
+  type Dimensions,
   type Node,
+  type NodeChange,
   type Edge,
+  type ReactFlowState,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { CommitNode, type CommitNodeData } from './CommitNode';
@@ -85,13 +89,22 @@ function buildPills(model: GraphModel): Pill[] {
   return pills;
 }
 
-/** Fit the viewport on structural change only (not on every render). */
+const selectNodeInternals = (s: ReactFlowState) => s.nodeInternals;
+
+/**
+ * Fit the viewport on structural change only (not on every render). fitView is
+ * a no-op (returns false) while any node is unmeasured, e.g. a just-added
+ * commit, so retry on every node-internals update until it lands once for the
+ * current signature.
+ */
 function FitOnChange({ signature }: { signature: string }) {
   const { fitView } = useReactFlow();
+  const nodeInternals = useStore(selectNodeInternals);
+  const fittedFor = useRef<string | null>(null);
   useEffect(() => {
-    const t = setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 0);
-    return () => clearTimeout(t);
-  }, [signature, fitView]);
+    if (fittedFor.current === signature) return;
+    if (fitView({ padding: 0.2, duration: 300 })) fittedFor.current = signature;
+  }, [signature, nodeInternals, fitView]);
   return null;
 }
 
@@ -99,12 +112,32 @@ export function CommitGraph({ model, selectedSha, onSelect }: CommitGraphProps) 
   const dimAnchor = useMemo(() => ancestorsOf(selectedSha, model.nodes), [selectedSha, model.nodes]);
   const headSha = model.head.kind === 'unborn' ? null : model.head.sha;
 
+  // Measured sizes, fed back into rfNodes. reactflow rebuilds its internals from
+  // the controlled nodes, so without width/height every rebuild would mark all
+  // nodes unmeasured (hidden until re-observed, and fitView refused).
+  const [sizes, setSizes] = useState<ReadonlyMap<string, Dimensions>>(() => new Map());
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setSizes((prev) => {
+      let next: Map<string, Dimensions> | null = null;
+      for (const c of changes) {
+        if (c.type !== 'dimensions' || !c.dimensions) continue;
+        const cur = (next ?? prev).get(c.id);
+        if (cur?.width === c.dimensions.width && cur?.height === c.dimensions.height) continue;
+        next ??= new Map(prev);
+        next.set(c.id, c.dimensions);
+      }
+      return next ?? prev;
+    });
+  }, []);
+
   const rfNodes = useMemo<Node<CommitNodeData>[]>(
     () =>
       model.nodes.map((n) => ({
         id: n.id,
         type: 'commit',
         position: { x: n.x, y: n.y },
+        width: sizes.get(n.id)?.width,
+        height: sizes.get(n.id)?.height,
         draggable: false,
         data: {
           sha: n.sha,
@@ -118,7 +151,7 @@ export function CommitGraph({ model, selectedSha, onSelect }: CommitGraphProps) 
           isPending: isPendingSha(n.sha),
         },
       })),
-    [model.nodes, selectedSha, headSha, dimAnchor],
+    [model.nodes, selectedSha, headSha, dimAnchor, sizes],
   );
 
   const rfEdges = useMemo<Edge[]>(
@@ -152,6 +185,7 @@ export function CommitGraph({ model, selectedSha, onSelect }: CommitGraphProps) 
     <ReactFlow
       nodes={rfNodes}
       edges={rfEdges}
+      onNodesChange={onNodesChange}
       nodeTypes={nodeTypes}
       fitView
       minZoom={0.2}

@@ -232,7 +232,7 @@ cd frontend && npm install && cd ..
 
 ```bash
 cd backend
-npm test                          # optional — full suite (64 tests) + real-git parity checks
+npm test                          # optional — full suite (65 tests) + real-git parity checks
 npm link                          # optional: puts `gritty` on your PATH
 node bin/gritty.js --help
 ```

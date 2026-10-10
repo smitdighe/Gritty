@@ -46,17 +46,22 @@ export function BranchList() {
                 <li
                   key={b.name}
                   className={cn(
-                    'flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm',
+                    // Wraps sha + checkout onto a second line when the full name
+                    // doesn't fit beside them (narrow side rail), never truncates.
+                    'flex flex-wrap items-center gap-x-2 gap-y-1 rounded px-2 py-1.5 text-sm',
                     isCurrent ? 'bg-bg-hover' : 'hover:bg-bg-hover',
                   )}
                 >
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className={cn('truncate', isCurrent ? 'text-fg' : 'text-fg-muted')}>
+                    <span
+                      className={cn('min-w-0 [overflow-wrap:anywhere]', isCurrent ? 'text-fg' : 'text-fg-muted')}
+                      title={b.name}
+                    >
                       {b.name}
                     </span>
                     {isCurrent && <Badge variant="head">current</Badge>}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="ml-auto flex shrink-0 items-center gap-2">
                     <span className="text-xs text-hash">{shortenSha(b.sha)}</span>
                     {!isCurrent && (
                       <Button

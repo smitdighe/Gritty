@@ -21,13 +21,17 @@ export interface CommitNodeData {
 export const COMMIT_NODE_WIDTH = 148;
 export const COMMIT_NODE_HEIGHT = 48;
 
-/** Custom reactflow node: short sha (hash-reveal), subject, author, highlights. */
+/**
+ * Custom reactflow node: short sha (hash-reveal), subject, author, highlights.
+ * Rows use fixed px line-heights (14 + 13 + 12) so they fit the fixed height:
+ * 39 content + 6 padding + 2 border = 47 <= COMMIT_NODE_HEIGHT.
+ */
 function CommitNodeImpl({ data }: NodeProps<CommitNodeData>) {
   return (
     <div
       style={{ width: COMMIT_NODE_WIDTH, height: COMMIT_NODE_HEIGHT }}
       className={cn(
-        'flex flex-col justify-center gap-0.5 rounded-md border bg-bg-soft px-2 py-1 transition-[opacity,border-color,box-shadow]',
+        'flex flex-col justify-center rounded-md border bg-bg-soft px-2 py-[3px] transition-[opacity,border-color,box-shadow]',
         'cursor-pointer select-none motion-safe:animate-fade-in',
         data.isPending
           ? 'border-dashed border-accent/60 opacity-70'
@@ -45,7 +49,7 @@ function CommitNodeImpl({ data }: NodeProps<CommitNodeData>) {
       <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-border" />
       <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-border" />
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 leading-[14px]">
         {data.isPending ? (
           <>
             <span className="h-2 w-2 shrink-0 rounded-full bg-tag motion-safe:animate-pulse-soft" />
@@ -63,10 +67,10 @@ function CommitNodeImpl({ data }: NodeProps<CommitNodeData>) {
           </>
         )}
       </div>
-      <div className="truncate text-[11px] leading-tight text-fg" title={data.subject}>
+      <div className="truncate text-[11px] leading-[13px] text-fg" title={data.subject}>
         {data.subject}
       </div>
-      <div className="truncate text-[10px] leading-tight text-fg-faint">{data.author}</div>
+      <div className="truncate text-[10px] leading-[12px] text-fg-faint">{data.author}</div>
     </div>
   );
 }
